@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Speech-to-Text Summarizer</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <div class="theme-toggle" id="themeToggle">
+        <div class="toggle-icon">🌙</div>
+    </div>
+
+    <div class="container">
+        <h1 class="title">YouTube Speech-to-Text Summarizer</h1>
+
+        <div class="input-section">
+            <div class="input-group">
+                <input 
+                    type="url" 
+                    class="url-input" 
+                    id="youtubeUrl" 
+                    placeholder="Paste your YouTube link here..."
+                    autocomplete="off"
+                >
+                <button class="btn btn-primary" id="loadVideoBtn">
+                    <span class="btn-text">Load Video</span>
+                    <span class="loading hidden"></span>
+                </button>
+            </div>
+            <div class="error-message hidden" id="errorMessage"></div>
+        </div>
+
+        <div class="video-section" id="videoSection">
+            <div class="video-container" id="videoContainer"></div>
+            <button class="btn btn-secondary" id="extractAudioBtn">
+                <span class="btn-text">Extract Audio</span>
+                <span class="loading hidden"></span>
+            </button>
+        </div>
+
+        <div class="audio-section" id="audioSection">
+            <audio class="audio-player" id="audioPlayer" controls></audio>
+            <div class="transcript-box" id="transcriptBox" title="Click to copy transcript">
+                <p><strong>Transcript:</strong></p>
+                <div id="transcriptContent"></div>
+                <span class="copy-tooltip hidden" id="transcriptTooltip">Copied!</span>
+            </div>
+            <button class="btn btn-success" id="getSummaryBtn">
+                <span class="btn-text">Get Summary</span>
+                <span class="loading hidden"></span>
+            </button>
+        </div>
+
+        <div class="summary-section" id="summarySection">
+            <div class="summary-box" title="Click to copy summary">
+                <div class="summary-title">
+                    <span>📝</span>
+                    AI-Generated Summary
+                </div>
+                <div class="summary-content" id="summaryContent"></div>
+                <span class="copy-tooltip hidden" id="summaryTooltip">Copied!</span>
+            </div>
+        </div>
+    </div>
+
+    <button class="chat-button" id="chatButton">💬</button>
+
+    <div class="chat-popup" id="chatPopup">
+        <div class="chat-header">
+            <span>AI Assistant</span>
+            <button class="chat-close" id="chatClose">×</button>
+        </div>
+        <div class="chat-messages" id="chatMessages">
+            <div class="chat-message">👋 Hi! I'm your AI assistant. Ask me about the video content!</div>
+        </div>
+        <div class="chat-input-container">
+            <input type="text" class="chat-input" id="chatInput" placeholder="Type your message...">
+            <button class="chat-send" id="chatSend">Send</button>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const youtubeUrl = document.getElementById('youtubeUrl');
+        const loadVideoBtn = document.getElementById('loadVideoBtn');
+        const videoSection = document.getElementById('videoSection');
+        const videoContainer = document.getElementById('videoContainer');
+        const extractAudioBtn = document.getElementById('extractAudioBtn');
+        const audioSection = document.getElementById('audioSection');
+        const audioPlayer = document.getElementById('audioPlayer');
+        const transcriptBox = document.getElementById('transcriptBox');
+        const transcriptContent = document.getElementById('transcriptContent');
+        const transcriptTooltip = document.getElementById('transcriptTooltip');
+        const getSummaryBtn = document.getElementById('getSummaryBtn');
+        const summarySection = document.getElementById('summarySection');
+        const summaryContent = document.getElementById('summaryContent');
+        const summaryTooltip = document.getElementById('summaryTooltip');
+        const errorMessage = document.getElementById('errorMessage');
+        const chatButton = document.getElementById('chatButton');
+        const chatPopup = document.getElementById('chatPopup');
+        const chatClose = document.getElementById('chatClose');
+        const chatMessages = document.getElementById('chatMessages');
+        const chatInput = document.getElementById('chatInput');
+        const chatSend = document.getElementById('chatSend');
+        const themeToggle = document.getElementById('themeToggle');
+
+        // Theme Management
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            setTheme(savedTheme);
+        }
+
+        function setTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+            document.querySelector('.toggle-icon').textContent = theme === 'dark' ? '☀' : '🌙';
+        }
+
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            setTheme(currentTheme === 'dark' ? 'light' : 'dark');
+        }
+
+        // Utility Functions
+        function getYouTubeVideoId(url) {
+            const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+            const match = url.match(regExp);
+            return (match && match[2].length === 11) ? match[2] : null;
+        }
+
+        function showLoading(button) {
+            button.querySelector('.btn-text').classList.add('hidden');
+            button.querySelector('.loading').classList.remove('hidden');
+            button.disabled = true;
+        }
+
+        function hideLoading(button) {
+            button.querySelector('.btn-text').classList.remove('hidden');
+            button.querySelector('.loading').classList.add('hidden');
+            button.disabled = false;
+        }
+
+        function showSection(section) {
+            setTimeout(() => section.classList.add('show'), 100);
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.add('show');
+            setTimeout(() => errorMessage.classList.remove('show'), 5000);
+        }
+
+        function showTooltip(tooltip) {
+            tooltip.classList.remove('hidden');
+            setTimeout(() => tooltip.classList.add('hidden'), 2000);
+        }
+
+        function addChatMessage(message, isUser = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `chat-message ${isUser ? 'user' : ''}`;
+            messageDiv.textContent = message;
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function copyToClipboard(text, tooltip) {
+            navigator.clipboard.writeText(text).then(() => {
+                showTooltip(tooltip);
+            }).catch(() => {
+                showError('Failed to copy text');
+            });
+        }
+
+        // API Calls
+        async function extractAudio(videoUrl) {
+            try {
+                const response = await fetch('/extract', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ video_url: videoUrl })
+                });
+                const data = await response.json();
+                if (data.status === 'error') {
+                    throw new Error(data.message);
+                }
+                return data;
+            } catch (error) {
+                throw new Error(`Failed to extract audio: ${error.message}`);
+            }
+        }
+
+        async function getSummary(transcript) {
+            try {
+                const response = await fetch('/summarize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ transcript })
+                });
+                const data = await response.json();
+                if (data.status === 'error') {
+                    throw new Error(data.message);
+                }
+                return data.summary;
+            } catch (error) {
+                throw new Error(`Failed to summarize: ${error.message}`);
+            }
+        }
+
+        async function getChatResponse(question, transcript) {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 30000);
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question, transcript }),
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                const data = await response.json();
+                if (data.status === 'error') {
+                    throw new Error(data.message);
+                }
+                return data.answer;
+            } catch (error) {
+                throw new Error(`Failed to get chat response: ${error.message}`);
+            }
+        }
+
+        // Event Handlers
+        loadVideoBtn.addEventListener('click', async () => {
+            const url = youtubeUrl.value.trim();
+            if (!url) return showError('Please enter a YouTube URL');
+
+            const videoId = getYouTubeVideoId(url);
+            if (!videoId) return showError('Please enter a valid YouTube URL');
+
+            showLoading(loadVideoBtn);
+
+            try {
+                const iframe = document.createElement('iframe');
+                iframe.src = `https://www.youtube.com/embed/${videoId}`;
+                iframe.frameBorder = '0';
+                iframe.allowFullscreen = true;
+                iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+                videoContainer.innerHTML = '';
+                videoContainer.appendChild(iframe);
+                hideLoading(loadVideoBtn);
+                showSection(videoSection);
+            } catch (error) {
+                hideLoading(loadVideoBtn);
+                showError('Failed to load video');
+            }
+        });
+
+        extractAudioBtn.addEventListener('click', async () => {
+            const url = youtubeUrl.value.trim();
+            if (!url) return showError('Please enter a YouTube URL first');
+
+            showLoading(extractAudioBtn);
+
+            try {
+                const data = await extractAudio(url);
+                audioPlayer.src = data.audio_url;
+                transcriptContent.textContent = data.transcript;
+                hideLoading(extractAudioBtn);
+                showSection(audioSection);
+            } catch (error) {
+                hideLoading(extractAudioBtn);
+                showError(error.message);
+            }
+        });
+
+        getSummaryBtn.addEventListener('click', async () => {
+            const transcript = transcriptContent.textContent;
+            if (!transcript) return showError('No transcript available to summarize');
+
+            showLoading(getSummaryBtn);
+
+            try {
+                const summary = await getSummary(transcript);
+                summaryContent.innerHTML = `<p>${summary}</p>`;
+                hideLoading(getSummaryBtn);
+                showSection(summarySection);
+            } catch (error) {
+                hideLoading(getSummaryBtn);
+                showError(error.message);
+            }
+        });
+
+        transcriptBox.addEventListener('click', () => {
+            const text = transcriptContent.textContent;
+            if (text) copyToClipboard(text, transcriptTooltip);
+        });
+
+        summarySection.addEventListener('click', () => {
+            const text = summaryContent.textContent;
+            if (text) copyToClipboard(text, summaryTooltip);
+        });
+
+        chatButton.addEventListener('click', () => {
+            chatPopup.classList.toggle('show');
+            if (chatPopup.classList.contains('show')) chatInput.focus();
+        });
+
+        chatClose.addEventListener('click', () => {
+            chatPopup.classList.remove('show');
+        });
+
+        chatSend.addEventListener('click', async () => {
+            const message = chatInput.value.trim();
+            if (!message) return;
+            addChatMessage(message, true);
+            chatInput.value = '';
+
+            const transcript = transcriptContent.textContent;
+            if (!transcript) {
+                addChatMessage("Please process a video first to ask questions about its content.");
+                return;
+            }
+
+            try {
+                showLoading(chatSend);
+                const aiResponse = await getChatResponse(message, transcript);
+                hideLoading(chatSend);
+                addChatMessage(aiResponse);
+            } catch (error) {
+                hideLoading(chatSend);
+                addChatMessage(`Error: ${error.message}`);
+            }
+        });
+
+        chatInput.addEventListener('keypress', (event) => {
+            if (event.key === 'Enter') chatSend.click();
+        });
+
+        document.addEventListener('click', (event) => {
+            if (!chatPopup.contains(event.target) && !chatButton.contains(event.target)) {
+                chatPopup.classList.remove('show');
+            }
+        });
+
+        youtubeUrl.addEventListener('keypress', (event) => {
+            if (event.key === 'Enter') loadVideoBtn.click();
+        });
+
+        window.addEventListener('load', () => {
+            initTheme();
+            youtubeUrl.focus();
+        });
+
+        themeToggle.addEventListener('click', toggleTheme);
+    </script>
+</body>
+</html>
